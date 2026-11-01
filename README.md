@@ -215,4 +215,5 @@ Everything CI downloads is pinned to content that can't change underneath it:
 
 - The HACS and hassfest Docker images are pinned by digest. Dependabot doesn't update these, so refresh them by hand with `docker buildx imagetools inspect ghcr.io/hacs/action:main` and `docker buildx imagetools inspect ghcr.io/home-assistant/hassfest:latest`.
 - Workflows run with a read-only token and don't keep it in the checkout.
+- The runtime requirements in `manifest.json` are bounded ranges rather than exact pins, because hassfest rejects exact pins on packages Home Assistant itself depends on. `python-miio` stays below 0.6 and `construct` at or below 2.10.70, so a new release can't be installed before it has been reviewed.
 - Dependabot proposes updates only after a release has been public for 7 days.
