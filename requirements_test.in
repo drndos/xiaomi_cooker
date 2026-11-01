@@ -1,0 +1,5 @@
+# Top-level test and type-check dependencies. Edit this file, then regenerate
+# the hash-locked requirements_test.txt as described in the README.
+mypy==2.4.1
+pytest-homeassistant-custom-component==0.13.375
+python-miio==0.5.12

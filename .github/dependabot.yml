@@ -1,0 +1,18 @@
+version: 2
+updates:
+  # Keeps the SHA pinned actions current. The docker:// image digests in the
+  # HACS and hassfest workflows are not covered and are refreshed by hand.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # Give the community time to spot a compromised release before adopting it.
+    cooldown:
+      default-days: 7
+  # Regenerates the hash-locked requirements_*.txt files from the .in files.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7

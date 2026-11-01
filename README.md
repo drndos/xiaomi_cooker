@@ -194,7 +194,25 @@ Stop the cooking process.
 
 ## Development
 
+Home Assistant only runs on Linux and macOS, so run the tests there or in a container:
+
 ```bash
-pip install -r requirements_test.txt
+pip install --require-hashes -r requirements_test.txt
 pytest
 ```
+
+### Supply chain
+
+Everything CI downloads is pinned to content that can't change underneath it:
+
+- GitHub Actions and pre-commit hooks are pinned to commit SHAs, each verified against the upstream release tag noted in the comment next to it.
+- Python packages are installed from hash-locked `requirements_*.txt` files. Edit the matching `.in` file and regenerate the lock:
+
+  ```bash
+  uv pip compile requirements_test.in --universal --python-version 3.14.2 --generate-hashes --no-header -o requirements_test.txt
+  uv pip compile requirements_lint.in --universal --python-version 3.14 --generate-hashes --no-header -o requirements_lint.txt
+  ```
+
+- The HACS and hassfest Docker images are pinned by digest. Dependabot doesn't update these, so refresh them by hand with `docker buildx imagetools inspect ghcr.io/hacs/action:main` and `docker buildx imagetools inspect ghcr.io/home-assistant/hassfest:latest`.
+- Workflows run with a read-only token and don't keep it in the checkout.
+- Dependabot proposes updates only after a release has been public for 7 days.

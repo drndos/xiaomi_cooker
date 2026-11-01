@@ -1,6 +1,8 @@
+# Hook revisions are pinned to commit SHAs because tags can be moved. The
+# comment after each rev is the release tag the SHA was verified against.
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.17.3
+    rev: 25bcf95026b96e2dd3c0aec3090c3d6ef6ca2e6c  # frozen: v0.17.3
     hooks:
       - id: ruff-check
         args:
@@ -9,23 +11,34 @@ repos:
       - id: ruff-format
         files: ^(custom_components|tests)/.+\.py$
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.4.3
+    rev: 57b21406f092110c18776e39b0bda50d37c945c8  # frozen: v2.4.3
     hooks:
       - id: codespell
         args:
           - --ignore-words-list=hass,alot,datas,dof,dur,eto,farenheit,hist,iff,ines,ist,lightsensor,mut,nd,pres,referer,ser,serie,te,technik,ue,uint,visability,wan,wanna,withing,hsa
           - --quiet-level=2
         exclude_types: [csv, json, ini]
+        exclude: ^requirements_.+\.txt$
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
     hooks:
       - id: check-executables-have-shebangs
         stages: [manual]
       - id: check-json
-  - repo: https://github.com/rbubley/mirrors-prettier
-    rev: v3.9.10
+  - repo: https://github.com/adrienverge/yamllint
+    rev: cba56bcde1fdd01c1deb3f945e69764c291a6530  # frozen: v1.38.0
+    hooks:
+      - id: yamllint
+  # Prettier runs as a local hook so no third-party mirror repository is
+  # needed. Both npm packages have no dependencies of their own, so these
+  # exact versions fully determine what is installed.
+  - repo: local
     hooks:
       - id: prettier
+        name: prettier
+        entry: prettier --write --ignore-unknown
+        language: node
+        types: [text]
         additional_dependencies:
           - prettier@3.9.10
           - prettier-plugin-sort-json@4.2.0

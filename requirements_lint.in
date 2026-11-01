@@ -1,0 +1,3 @@
+# Top-level lint dependencies. Edit this file, then regenerate the
+# hash-locked requirements_lint.txt as described in the README.
+pre-commit==4.7.0
