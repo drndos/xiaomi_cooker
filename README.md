@@ -1,6 +1,6 @@
 # Xiaomi Mi Electric Rice Cooker
 
-![GitHub actions](https://github.com/syssi/xiaomi_cooker/actions/workflows/ci.yaml/badge.svg)
+![GitHub actions](https://github.com/syssi/xiaomi_cooker/actions/workflows/tests.yaml/badge.svg)
 ![GitHub stars](https://img.shields.io/github/stars/syssi/xiaomi_cooker)
 ![GitHub forks](https://img.shields.io/github/forks/syssi/xiaomi_cooker)
 ![GitHub watchers](https://img.shields.io/github/watchers/syssi/xiaomi_cooker)
@@ -8,7 +8,7 @@
 
 This is a custom component for home assistant to integrate the Xiaomi Mi Electric Rice Cooker V2.
 
-Please follow the instructions on [Retrieving the Access Token](https://www.home-assistant.io/integrations/xiaomi_miio/#xiaomi-cloud-tokens-extractor) to get the API token to use in the configuration.yaml file.
+Please follow the instructions on [Retrieving the Access Token](https://www.home-assistant.io/integrations/xiaomi_miio/#xiaomi-cloud-tokens-extractor) to get the API token of your cooker.
 
 Credits: Thanks to [Rytilahti](https://github.com/rytilahti/python-miio) for all the work.
 
@@ -64,14 +64,26 @@ You can install this custom component by adding this repository ([https://github
 
 ## Setup
 
+Home Assistant 2026.10 or newer is required.
+
+1. Go to **Settings → Devices & services** and click **Add integration**.
+2. Search for **Xiaomi Mi Electric Rice Cooker**.
+3. Enter the IP address and the 32 character token of your cooker. The name is used as the device name and as the prefix of the entity IDs, so keep the default `Xiaomi Miio Cooker` if you want the entity IDs used in the examples below.
+
+The cooker has to be reachable while you add it, because the model and MAC address are read from the device. Each cooker is added as its own device, so multiple cookers are supported.
+
+To change the IP address or the token later, open the integration and choose **Reconfigure**. The polling interval (default 30 seconds) can be changed in the integration **options**.
+
+### Migrating from configuration.yaml
+
+An existing `xiaomi_miio_cooker:` entry in `configuration.yaml` is imported automatically on the next restart. Afterwards a repair issue asks you to remove the YAML entry. If the import fails, for example because the cooker was offline, a repair issue explains why and the import is retried on the next restart. The `model` option is no longer used, the model is always detected.
+
+The entity IDs now derive from the device name. They stay the same (`sensor.xiaomi_miio_cooker_*`) if the cooker is named `Xiaomi Miio Cooker`; with another name, update your dashboards and automations.
+
+### Template switch example
+
 ```yaml
 # configuration.yaml
-
-xiaomi_miio_cooker:
-  name: Xiaomi Rice Cooker
-  host: 192.168.130.88
-  token: b7c4a758c251955d2c24b1d9e41ce47d
-  model: chunmi.cooker.normal2
 
 # template switch example to start a specific cooking profile
 switch:
@@ -80,18 +92,12 @@ switch:
       xiaomi_miio_cooker:
         value_template: "{{ is_state('sensor.xiaomi_miio_cooker_mode', 'Running') }}"
         turn_on:
-          service: xiaomi_miio_cooker.start
+          action: xiaomi_miio_cooker.start
           data:
             profile: "0001E10100000000000080026E10082B126E1412698CAA555555550014280A6E0C02050506050505055A14040A0C0C0D00040505060A0F086E6E20000C0A5A28036468686A0004040500000000000000010202020204040506070708001212180C1E2D2D37000000000000000000000099A5"
         turn_off:
-          service: xiaomi_miio_cooker.stop
+          action: xiaomi_miio_cooker.stop
 ```
-
-Configuration variables:
-- **host** (*Required*): The IP of your cooker.
-- **token** (*Required*): The API token of your cooker.
-- **name** (*Optional*): The name of your cooker.
-- **model** (*Optional*): The model of your device. Valid values are `chunmi.cooker.normal2` and `chunmi.cooker.normal5`. This setting can be used to bypass the device model detection and is recommended if your device isn't always available.
 
 ## Lovelace
 
@@ -137,9 +143,9 @@ If you prefer a button instead of a switch entity you could add a lovelace butto
 ```
 type: button
 tap_action:
-  action: call-service
-  service: xiaomi_miio_cooker.start
-  service_data:
+  action: perform-action
+  perform_action: xiaomi_miio_cooker.start
+  data:
     profile: "010088003201000028000012000000000000000000000846822A6E14002018000F6E82736E140A201810000000000000000000003C8782716E1400200A100000000000000000000000000000000000000000000000000000000000003C0A000000008700000000000000000000000000424D"
 hold_action:
   action: more-info
@@ -164,7 +170,9 @@ logger:
     miio: debug
 ```
 
-## Platform services
+## Services
+
+Both services accept an optional target (entity, device or area). Without a target the command is sent to every configured cooker.
 
 #### Service `xiaomi_miio_cooker.start`
 
@@ -172,7 +180,7 @@ Start cooking a profile.
 
 | Service data attribute    | Optional | Description                                                          |
 |---------------------------|----------|----------------------------------------------------------------------|
-| `profile`                 |       no | Profile data which describes the temperature curve.                  |
+| `profile`                 |       no | Hex encoded profile (228 or 242 characters) which describes the temperature curve. |
 
 Some cooking profile examples: https://raw.githubusercontent.com/rytilahti/python-miio/master/miio/data/cooker_profiles.json
 
@@ -183,3 +191,10 @@ Some cooking profile examples: https://raw.githubusercontent.com/rytilahti/pytho
 #### Service `xiaomi_miio_cooker.stop`
 
 Stop the cooking process.
+
+## Development
+
+```bash
+pip install -r requirements_test.txt
+pytest
+```

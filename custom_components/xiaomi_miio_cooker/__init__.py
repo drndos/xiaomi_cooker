@@ -1,50 +1,41 @@
 """Xiaomi MiIO Cooker integration."""
 
-from datetime import timedelta
+from __future__ import annotations
+
 import logging
 
-from homeassistant.const import CONF_HOST, CONF_NAME, CONF_SCAN_INTERVAL, CONF_TOKEN
-from homeassistant.exceptions import PlatformNotReady
-from homeassistant.helpers import discovery
-import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.dispatcher import dispatcher_send
-from homeassistant.helpers.entity import Entity
-from homeassistant.helpers.event import track_time_interval
-from homeassistant.util.dt import utcnow
-from miio import Cooker, Device, DeviceException
-from miio.cooker import OperationMode
-import voluptuous as vol
+from homeassistant.config_entries import SOURCE_IMPORT
+from homeassistant.const import (
+    CONF_HOST,
+    CONF_NAME,
+    CONF_SCAN_INTERVAL,
+    CONF_TOKEN,
+    Platform,
+)
+from homeassistant.core import DOMAIN as HOMEASSISTANT_DOMAIN
+from homeassistant.core import HomeAssistant
+from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.typing import ConfigType
+from miio import Cooker
+import probatio as vol
+
+from .const import (
+    CONF_MODEL,
+    DEFAULT_NAME,
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+    SUPPORTED_MODELS,
+)
+from .coordinator import XiaomiCookerConfigEntry, XiaomiCookerCoordinator
+from .services import async_setup_services
 
 _LOGGER = logging.getLogger(__name__)
 
-DEFAULT_NAME = "Xiaomi Miio Cooker"
-DOMAIN = "xiaomi_miio_cooker"
-DATA_KEY = "xiaomi_miio_cooker_data"
-DATA_TEMPERATURE_HISTORY = "temperature_history"
-DATA_STATE = "state"
+PLATFORMS = [Platform.SENSOR]
 
-SCAN_INTERVAL = timedelta(seconds=30)
-
-CONF_MODEL = "model"
-
-MODEL_PRESSURE1 = "chunmi.cooker.press1"
-MODEL_PRESSURE2 = "chunmi.cooker.press2"
-MODEL_NORMAL1 = "chunmi.cooker.normal1"
-MODEL_NORMAL2 = "chunmi.cooker.normal2"
-MODEL_NORMAL3 = "chunmi.cooker.normal3"
-MODEL_NORMAL4 = "chunmi.cooker.normal4"
-MODEL_NORMAL5 = "chunmi.cooker.normal5"
-
-SUPPORTED_MODELS = [
-    MODEL_PRESSURE1,
-    MODEL_PRESSURE2,
-    MODEL_NORMAL1,
-    MODEL_NORMAL2,
-    MODEL_NORMAL3,
-    MODEL_NORMAL4,
-    MODEL_NORMAL5,
-]
-
+# Legacy configuration.yaml support. The entry is imported into a config entry.
 CONFIG_SCHEMA = vol.Schema(
     {
         DOMAIN: vol.Schema(
@@ -55,167 +46,80 @@ CONFIG_SCHEMA = vol.Schema(
                 ),
                 vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
                 vol.Optional(CONF_MODEL): vol.In(SUPPORTED_MODELS),
-                vol.Optional(CONF_SCAN_INTERVAL, default=SCAN_INTERVAL): cv.time_period,
+                vol.Optional(
+                    CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL
+                ): cv.time_period,
             }
         )
     },
     extra=vol.ALLOW_EXTRA,
 )
 
-ATTR_MODEL = "model"
-ATTR_PROFILE = "profile"
 
-SUCCESS = ["ok"]
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Set up the integration and import a legacy YAML configuration."""
+    async_setup_services(hass)
 
-SERVICE_SCHEMA = vol.Schema(
-    {
-        #    vol.Optional(ATTR_ENTITY_ID): cv.entity_ids,
-    }
-)
-
-SERVICE_SCHEMA_START = SERVICE_SCHEMA.extend({vol.Required(ATTR_PROFILE): cv.string})
-
-SERVICE_START = "start"
-SERVICE_STOP = "stop"
-
-
-# pylint: disable=unused-argument
-def setup(hass, config):
-    """Set up the platform from config."""
-    if DOMAIN not in hass.data:
-        hass.data[DOMAIN] = {}
-
-    host = config[DOMAIN][CONF_HOST]
-    token = config[DOMAIN][CONF_TOKEN]
-    # name = config[DOMAIN][CONF_NAME]
-    model = config[DOMAIN].get(CONF_MODEL)
-    scan_interval = config[DOMAIN][CONF_SCAN_INTERVAL]
-
-    if DATA_KEY not in hass.data:
-        hass.data[DATA_KEY] = {}
-        hass.data[DATA_KEY][host] = {}
-
-    _LOGGER.info("Initializing with host %s (token %s...)", host, token[:5])
-
-    if model is None:
-        try:
-            miio_device = Device(host, token)
-            device_info = miio_device.info()
-            model = device_info.model
-            _LOGGER.info(
-                "%s %s %s detected",
-                model,
-                device_info.firmware_version,
-                device_info.hardware_version,
-            )
-        except DeviceException:
-            raise PlatformNotReady from None
-
-    if model in SUPPORTED_MODELS:
-        cooker = Cooker(host, token)
-
-        hass.data[DOMAIN][host] = cooker
-
-        for component in ["sensor"]:
-            discovery.load_platform(hass, component, DOMAIN, {}, config)
-
-    else:
-        _LOGGER.error(
-            "Unsupported device found! Please create an issue at "
-            "https://github.com/syssi/xiaomi_cooker/issues "
-            "and provide the following data: %s",
-            model,
-        )
-        return False
-
-    def update(event_time):
-        """Update device status."""
-
-        try:
-            state = cooker.status()
-            _LOGGER.debug("Got new state: %s", state)
-            hass.data[DATA_KEY][host][DATA_STATE] = state
-
-            if state.mode in [OperationMode.Running, OperationMode.AutoKeepWarm]:
-                hass.data[DATA_KEY][host][DATA_TEMPERATURE_HISTORY] = (
-                    cooker.get_temperature_history()
-                )
-
-            dispatcher_send(hass, f"{DOMAIN}_updated", host)
-
-        except DeviceException as ex:
-            dispatcher_send(hass, f"{DOMAIN}_unavailable", host)
-            _LOGGER.info("Got exception while fetching the state: %s", ex)
-
-    update(utcnow())
-    track_time_interval(hass, update, scan_interval)
-
-    def start_service(call):
-        """Service to start cooking."""
-        profile = call.data.get(ATTR_PROFILE)
-        cooker.start(profile)
-
-    def stop_service(call):
-        """Service to stop cooking."""
-        cooker.stop()
-
-    hass.services.register(
-        DOMAIN, SERVICE_START, start_service, schema=SERVICE_SCHEMA_START
-    )
-
-    hass.services.register(DOMAIN, SERVICE_STOP, stop_service, schema=SERVICE_SCHEMA)
+    if DOMAIN in config:
+        hass.async_create_task(_async_import_yaml(hass, config[DOMAIN]))
 
     return True
 
 
-class XiaomiMiioDevice(Entity):
-    """Representation of a Xiaomi MiIO device."""
+async def _async_import_yaml(hass: HomeAssistant, conf: ConfigType) -> None:
+    """Import the YAML configuration and raise a repair issue."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_IMPORT}, data=conf
+    )
 
-    def __init__(self, device, name):
-        """Initialize the entity."""
-        self._device = device
-        self._name = name
+    if (
+        result["type"] is FlowResultType.ABORT
+        and result["reason"] != "already_configured"
+    ):
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            f"deprecated_yaml_import_issue_{result['reason']}",
+            is_fixable=False,
+            issue_domain=DOMAIN,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=f"deprecated_yaml_import_issue_{result['reason']}",
+            translation_placeholders={"host": conf[CONF_HOST]},
+        )
+        return
 
-        self._available = None
-        self._state = None
-        self._state_attrs = {}
-
-    @property
-    def should_poll(self):
-        """Poll the miio device."""
-        return True
-
-    @property
-    def name(self):
-        """Return the name of this entity, if any."""
-        return self._name
-
-    @property
-    def available(self):
-        """Return true when state is known."""
-        return self._available
-
-    @property
-    def state(self):
-        """Return the state of the device."""
-        return self._state
-
-    @property
-    def extra_state_attributes(self):
-        """Return the extra state attributes of the device."""
-        return self._state_attrs
+    ir.async_create_issue(
+        hass,
+        HOMEASSISTANT_DOMAIN,
+        f"deprecated_yaml_{DOMAIN}",
+        is_fixable=False,
+        issue_domain=DOMAIN,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="deprecated_yaml",
+        translation_placeholders={
+            "domain": DOMAIN,
+            "integration_title": "Xiaomi Mi Electric Rice Cooker",
+        },
+    )
 
 
-#    async def _try_command(self, mask_error, func, *args, **kwargs):
-#        """Call a device command handling error messages."""
-#        try:
-#            result = await
-#            self.hass.async_add_job(
-#                partial(func, *args, **kwargs))
-#
-#            _LOGGER.info("Response received from miio device: %s", result)
-#
-#            return result == SUCCESS
-#        except DeviceException as exc:
-#            _LOGGER.error(mask_error, exc)
-#            return False
+async def async_setup_entry(
+    hass: HomeAssistant, entry: XiaomiCookerConfigEntry
+) -> bool:
+    """Set up the cooker from a config entry."""
+    cooker = Cooker(
+        entry.data[CONF_HOST], entry.data[CONF_TOKEN], model=entry.data[CONF_MODEL]
+    )
+    coordinator = XiaomiCookerCoordinator(hass, entry, cooker)
+    await coordinator.async_config_entry_first_refresh()
+
+    entry.runtime_data = coordinator
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    return True
+
+
+async def async_unload_entry(
+    hass: HomeAssistant, entry: XiaomiCookerConfigEntry
+) -> bool:
+    """Unload a config entry."""
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

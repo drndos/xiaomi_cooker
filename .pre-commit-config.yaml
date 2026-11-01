@@ -1,15 +1,15 @@
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.17
+    rev: v0.17.3
     hooks:
       - id: ruff-check
         args:
           - --fix
-        files: ^(custom_components)/.+\.py$
+        files: ^(custom_components|tests)/.+\.py$
       - id: ruff-format
-        files: ^(custom_components)/.+\.py$
+        files: ^(custom_components|tests)/.+\.py$
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.4.2
+    rev: v2.4.3
     hooks:
       - id: codespell
         args:
@@ -23,10 +23,10 @@ repos:
         stages: [manual]
       - id: check-json
   - repo: https://github.com/rbubley/mirrors-prettier
-    rev: v3.6.2
+    rev: v3.9.10
     hooks:
       - id: prettier
         additional_dependencies:
-          - prettier@3.6.2
+          - prettier@3.9.10
           - prettier-plugin-sort-json@4.2.0
-        files: ^custom_components/.+/strings\.json$
+        files: ^custom_components/.+/(strings|translations/.+)\.json$

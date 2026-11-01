@@ -1,135 +1,189 @@
 """Xiaomi MiIO Cooker sensor platform."""
 
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
 from enum import Enum
-import logging
 
-from homeassistant.components.sensor import ENTITY_ID_FORMAT
-from homeassistant.core import callback
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity import Entity
-from homeassistant.util import slugify
-from miio.cooker import OperationMode
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+    SensorStateClass,
+)
+from homeassistant.const import UnitOfTemperature, UnitOfTime
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, DeviceInfo
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.typing import StateType
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-_LOGGER = logging.getLogger(__name__)
+from .const import CONF_MAC, CONF_MODEL, DOMAIN
+from .coordinator import (
+    HEATING_MODES,
+    CookerData,
+    XiaomiCookerConfigEntry,
+    XiaomiCookerCoordinator,
+    operation_mode,
+)
 
-COOKER_DOMAIN = "xiaomi_miio_cooker"
-DATA_KEY = "xiaomi_miio_cooker_data"
-DATA_TEMPERATURE_HISTORY = "temperature_history"
-DATA_STATE = "state"
-
-SENSOR_TYPES = {
-    "mode": ["Mode", None, "mode", None, "mdi:bowl"],
-    "menu": ["Menu", None, "menu", None, "mdi:menu"],
-    "temperature": ["Temperature", None, "temperature", "°C", None],
-    "remaining": ["Remaining", None, "remaining", "min", "mdi:timer"],
-    "duration": ["Duration", None, "duration", "min", "mdi:timelapse"],
-    "favorite": ["Favorite", None, "favorite", None, "mdi:information-outline"],
-    "state": ["State", "stage", "state", None, "mdi:playlist-check"],
-    "rice_id": ["Rice Id", "stage", "rice_id", None, "mdi:rice"],
-    "taste": ["Taste", "stage", "taste", None, "mdi:flash-outline"],
-    "taste_phase": ["Taste Phase", "stage", "taste_phase", None, "mdi:flash-outline"],
-    "stage_name": ["Stage Name", "stage", "name", None, "mdi:stairs"],
-    "stage_description": [
-        "Stage Description",
-        "stage",
-        "description",
-        None,
-        "mdi:stairs",
-    ],
-}
+# Entities only read coordinator data, so updates need no parallelism limit.
+PARALLEL_UPDATES = 0
 
 
-def setup_platform(hass, config, add_devices, discovery_info=None):
-    """Set up the Xiaomi Cooker sensors."""
-    if discovery_info is None:
-        return
-
-    sensors = []
-
-    for host, cooker in hass.data[COOKER_DOMAIN].items():
-        for type in SENSOR_TYPES.values():
-            sensors.append(XiaomiCookerSensor(cooker, host, type))
-
-    add_devices(sensors)
+def _mode(data: CookerData) -> str | None:
+    """Return the operation mode name, falling back to the raw device value."""
+    mode = operation_mode(data.status)
+    return mode.name if mode is not None else data.status.data.get("func")
 
 
-class XiaomiCookerSensor(Entity):
+def _temperature(data: CookerData) -> int | None:
+    """Return the most recent temperature reading.
+
+    While heating, the temperature history is fresher than the status property.
+    """
+    history = data.temperature_history
+    if (
+        operation_mode(data.status) in HEATING_MODES
+        and history
+        and history.temperatures
+    ):
+        return history.temperatures[-1]
+    return data.status.temperature
+
+
+def _stage(attribute: str) -> Callable[[CookerData], StateType]:
+    """Return an accessor for an attribute of the current cooking stage."""
+
+    def value(data: CookerData) -> StateType:
+        stage = data.status.stage
+        if stage is None:
+            return None
+        result = getattr(stage, attribute)
+        return result.name if isinstance(result, Enum) else result
+
+    return value
+
+
+@dataclass(frozen=True, kw_only=True)
+class XiaomiCookerSensorEntityDescription(SensorEntityDescription):
+    """Describes a cooker sensor."""
+
+    value_fn: Callable[[CookerData], StateType]
+
+
+SENSOR_TYPES: tuple[XiaomiCookerSensorEntityDescription, ...] = (
+    XiaomiCookerSensorEntityDescription(
+        key="mode",
+        translation_key="mode",
+        value_fn=_mode,
+    ),
+    XiaomiCookerSensorEntityDescription(
+        key="menu",
+        translation_key="menu",
+        value_fn=lambda data: data.status.menu,
+    ),
+    XiaomiCookerSensorEntityDescription(
+        key="temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        value_fn=_temperature,
+    ),
+    XiaomiCookerSensorEntityDescription(
+        key="remaining",
+        translation_key="remaining",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        value_fn=lambda data: data.status.remaining,
+    ),
+    XiaomiCookerSensorEntityDescription(
+        key="duration",
+        translation_key="duration",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        value_fn=lambda data: data.status.duration,
+    ),
+    XiaomiCookerSensorEntityDescription(
+        key="favorite",
+        translation_key="favorite",
+        value_fn=lambda data: data.status.favorite,
+    ),
+    XiaomiCookerSensorEntityDescription(
+        key="state",
+        translation_key="state",
+        value_fn=_stage("state"),
+    ),
+    XiaomiCookerSensorEntityDescription(
+        key="rice_id",
+        translation_key="rice_id",
+        value_fn=_stage("rice_id"),
+    ),
+    XiaomiCookerSensorEntityDescription(
+        key="taste",
+        translation_key="taste",
+        value_fn=_stage("taste"),
+    ),
+    XiaomiCookerSensorEntityDescription(
+        key="taste_phase",
+        translation_key="taste_phase",
+        value_fn=_stage("taste_phase"),
+    ),
+    XiaomiCookerSensorEntityDescription(
+        key="stage_name",
+        translation_key="stage_name",
+        value_fn=_stage("name"),
+    ),
+    XiaomiCookerSensorEntityDescription(
+        key="stage_description",
+        translation_key="stage_description",
+        value_fn=_stage("description"),
+    ),
+)
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: XiaomiCookerConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
+) -> None:
+    """Set up the cooker sensors from a config entry."""
+    coordinator = entry.runtime_data
+    async_add_entities(
+        XiaomiCookerSensor(coordinator, description) for description in SENSOR_TYPES
+    )
+
+
+class XiaomiCookerSensor(CoordinatorEntity[XiaomiCookerCoordinator], SensorEntity):
     """Representation of a Xiaomi Cooker sensor."""
 
-    def __init__(self, device, host, config):
-        """Initialize sensor."""
-        self._device = device
-        self._host = host
-        self._name = config[0]
-        self._child = config[1]
-        self._attr = config[2]
-        self._unit_of_measurement = config[3]
-        self._icon = config[4]
-        self._state = None
+    _attr_has_entity_name = True
+    entity_description: XiaomiCookerSensorEntityDescription
 
-        self.entity_id = ENTITY_ID_FORMAT.format(
-            f"{COOKER_DOMAIN}_{slugify(self._name)}"
+    def __init__(
+        self,
+        coordinator: XiaomiCookerCoordinator,
+        description: XiaomiCookerSensorEntityDescription,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self.entity_description = description
+
+        entry = coordinator.config_entry
+        unique_id = entry.unique_id or entry.entry_id
+        self._attr_unique_id = f"{unique_id}_{description.key}"
+
+        mac = entry.data.get(CONF_MAC)
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, unique_id)},
+            connections={(CONNECTION_NETWORK_MAC, mac)} if mac else set(),
+            manufacturer="Xiaomi",
+            model=entry.data[CONF_MODEL],
+            name=entry.title,
         )
 
-    async def async_added_to_hass(self):
-        """Register callbacks."""
-        async_dispatcher_connect(
-            self.hass, f"{COOKER_DOMAIN}_updated", self.async_update_callback
-        )
-
     @property
-    def name(self):
-        """Return the name."""
-        return self._name
-
-    @callback
-    def async_update_callback(self, host):
-        """Update state."""
-        if self._host is not host:
-            return
-
-        state = self.hass.data[DATA_KEY][host].get(DATA_STATE)
-        temperature_history = self.hass.data[DATA_KEY][host].get(
-            DATA_TEMPERATURE_HISTORY
-        )
-
-        if self._child is not None:
-            state = getattr(state, self._child, None)
-            # Unset state if child attribute isn't available anymore
-            if state is None:
-                self._state = None
-
-        if state is not None:
-            value = getattr(state, self._attr, None)
-            if isinstance(value, Enum):
-                self._state = value.name
-            elif (
-                self._attr == "temperature"
-                and state.mode in [OperationMode.Running, OperationMode.AutoKeepWarm]
-                and temperature_history
-            ):
-                self._state = temperature_history.temperatures.pop()
-            else:
-                self._state = value
-
-        self.async_schedule_update_ha_state()
-
-    @property
-    def state(self):
-        """Return the state."""
-        return self._state
-
-    @property
-    def unit_of_measurement(self):
-        """Return the unit of measurement the state is expressed in."""
-        return self._unit_of_measurement
-
-    @property
-    def icon(self) -> str | None:
-        """Return the icon to use in the frontend, if any."""
-        return self._icon
-
-    @property
-    def should_poll(self):
-        """Return the polling state."""
-        return False
+    def native_value(self) -> StateType:
+        """Return the state of the sensor."""
+        return self.entity_description.value_fn(self.coordinator.data)

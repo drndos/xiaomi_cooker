@@ -1,0 +1,132 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "Device is already configured",
+      "reconfigure_successful": "Re-configuration was successful",
+      "wrong_device": "The device at this address is a different cooker than the one configured."
+    },
+    "error": {
+      "cannot_connect": "Failed to connect. Check the host and the token.",
+      "invalid_token": "The token must be 32 hexadecimal characters.",
+      "unknown": "Unexpected error",
+      "unsupported_model": "The device reports model {model}, which is not a supported cooker."
+    },
+    "step": {
+      "reconfigure": {
+        "data": {
+          "host": "Host",
+          "token": "Token"
+        },
+        "data_description": {
+          "host": "The IP address of your cooker.",
+          "token": "The 32 character API token of your cooker."
+        },
+        "description": "Update the connection details of your cooker."
+      },
+      "user": {
+        "data": {
+          "host": "Host",
+          "name": "Name",
+          "token": "Token"
+        },
+        "data_description": {
+          "host": "The IP address of your cooker.",
+          "name": "Used as the device name and as the prefix of the entity IDs.",
+          "token": "The 32 character API token of your cooker."
+        },
+        "description": "Set up a Xiaomi rice or pressure cooker. See the documentation for how to retrieve the token."
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "duration": {
+        "name": "Duration"
+      },
+      "favorite": {
+        "name": "Favorite"
+      },
+      "menu": {
+        "name": "Menu"
+      },
+      "mode": {
+        "name": "Mode"
+      },
+      "remaining": {
+        "name": "Remaining"
+      },
+      "rice_id": {
+        "name": "Rice ID"
+      },
+      "stage_description": {
+        "name": "Stage description"
+      },
+      "stage_name": {
+        "name": "Stage name"
+      },
+      "state": {
+        "name": "State"
+      },
+      "taste": {
+        "name": "Taste"
+      },
+      "taste_phase": {
+        "name": "Taste phase"
+      }
+    }
+  },
+  "exceptions": {
+    "command_failed": {
+      "message": "Sending the command to {name} failed: {error}"
+    },
+    "no_cooker_targeted": {
+      "message": "No loaded cooker matches the selected target."
+    }
+  },
+  "issues": {
+    "deprecated_yaml_import_issue_cannot_connect": {
+      "description": "Importing the YAML configuration of the cooker at {host} failed because the device could not be reached. Make sure it is online and the token is correct, then restart Home Assistant, or remove the YAML configuration and add the cooker from the UI.",
+      "title": "Xiaomi cooker YAML import failed"
+    },
+    "deprecated_yaml_import_issue_invalid_token": {
+      "description": "Importing the YAML configuration of the cooker at {host} failed because the token is not 32 hexadecimal characters. Remove the YAML configuration and add the cooker from the UI.",
+      "title": "Xiaomi cooker YAML import failed"
+    },
+    "deprecated_yaml_import_issue_unknown": {
+      "description": "Importing the YAML configuration of the cooker at {host} failed with an unexpected error. Check the logs, then remove the YAML configuration and add the cooker from the UI.",
+      "title": "Xiaomi cooker YAML import failed"
+    },
+    "deprecated_yaml_import_issue_unsupported_model": {
+      "description": "Importing the YAML configuration of the cooker at {host} failed because the device is not a supported cooker model. Remove the YAML configuration.",
+      "title": "Xiaomi cooker YAML import failed"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "scan_interval": "Update interval"
+        },
+        "data_description": {
+          "scan_interval": "How often to poll the cooker, in seconds."
+        }
+      }
+    }
+  },
+  "services": {
+    "start": {
+      "description": "Starts cooking a profile on the targeted cookers, or on all cookers if no target is given.",
+      "fields": {
+        "profile": {
+          "description": "Hex encoded profile (228 or 242 characters) which describes the temperature curve.",
+          "name": "Profile"
+        }
+      },
+      "name": "Start cooking"
+    },
+    "stop": {
+      "description": "Stops the cooking process on the targeted cookers, or on all cookers if no target is given.",
+      "name": "Stop cooking"
+    }
+  }
+}
